@@ -38,6 +38,7 @@ fn test_data_bar_codegen() {
         header: None,
         footer: None,
         charts: vec![],
+        overlays: vec![],
     });
     let doc = make_doc(vec![page]);
     let output = generate_typst(&doc).unwrap();
@@ -84,6 +85,7 @@ fn test_icon_text_codegen() {
         header: None,
         footer: None,
         charts: vec![],
+        overlays: vec![],
     });
     let doc = make_doc(vec![page]);
     let output = generate_typst(&doc).unwrap();

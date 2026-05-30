@@ -430,6 +430,11 @@ fn generate_table_page(
     } else {
         generate_table_with_charts(out, &page.table, &page.charts, ctx)?;
     }
+
+    for overlay in &page.overlays {
+        generate_fixed_element(out, overlay, ctx)?;
+    }
+
     Ok(())
 }
 

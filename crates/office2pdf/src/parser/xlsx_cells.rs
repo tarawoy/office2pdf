@@ -160,6 +160,8 @@ pub(super) fn build_merge_maps(
 pub(super) struct SheetContext {
     pub(super) col_start: u32,
     pub(super) col_end: u32,
+    pub(super) row_start: u32,
+    pub(super) row_end: u32,
     pub(super) num_cols: usize,
     pub(super) column_widths: Vec<f64>,
     pub(super) merge_tops: HashMap<(u32, u32), MergeInfo>,
@@ -301,6 +303,8 @@ pub(super) fn prepare_sheet_context(
         SheetContext {
             col_start,
             col_end,
+            row_start,
+            row_end,
             num_cols,
             column_widths,
             merge_tops,

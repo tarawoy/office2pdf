@@ -181,6 +181,7 @@ fn make_sheet_page(name: &str, width: f64, height: f64, margins: Margins, table:
         header: None,
         footer: None,
         charts: vec![],
+        overlays: vec![],
     })
 }
 

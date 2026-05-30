@@ -141,6 +141,9 @@ pub struct SheetPage {
     /// Charts anchored within this sheet, stored as (anchor_row, chart) where
     /// `anchor_row` is the 1-indexed row number after which the chart is rendered.
     pub charts: Vec<(u32, super::elements::Chart)>,
+    /// Fixed-position worksheet drawing elements, such as pictures from
+    /// `xl/drawings/*.xml`, placed relative to the rendered PDF page.
+    pub overlays: Vec<FixedElement>,
 }
 
 #[cfg(test)]

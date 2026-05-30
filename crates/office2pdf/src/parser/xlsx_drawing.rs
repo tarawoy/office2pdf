@@ -1,9 +1,348 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 
+use crate::ir::{FixedElement, FixedElementKind, ImageData, ImageFormat, Margins};
 use crate::ir::Chart;
 use crate::parser::chart::parse_chart_xml;
 use crate::parser::xml_util;
+
+use super::xlsx_cells::{SheetContext, DEFAULT_COLUMN_WIDTH, column_width_to_pt};
+
+const EMU_PER_POINT: f64 = 12_700.0;
+const DEFAULT_ROW_HEIGHT_PT: f64 = 15.0;
+
+#[derive(Debug, Clone, Default)]
+struct Marker {
+    col: u32,
+    col_off_emu: i64,
+    row: u32,
+    row_off_emu: i64,
+}
+
+#[derive(Debug, Clone)]
+struct PictureAnchor {
+    from: Marker,
+    to: Option<Marker>,
+    ext: Option<(i64, i64)>,
+    rid: String,
+}
+
+fn emu_to_pt(value: i64) -> f64 {
+    value as f64 / EMU_PER_POINT
+}
+
+fn image_format_from_path(path: &str) -> Option<ImageFormat> {
+    let ext = path.rsplit('.').next()?.to_ascii_lowercase();
+    match ext.as_str() {
+        "png" => Some(ImageFormat::Png),
+        "jpg" | "jpeg" => Some(ImageFormat::Jpeg),
+        "gif" => Some(ImageFormat::Gif),
+        "bmp" => Some(ImageFormat::Bmp),
+        "tif" | "tiff" => Some(ImageFormat::Tiff),
+        "svg" => Some(ImageFormat::Svg),
+        _ => None,
+    }
+}
+
+fn read_zip_entry_bytes(
+    archive: &mut zip::ZipArchive<Cursor<&[u8]>>,
+    path: &str,
+) -> Option<Vec<u8>> {
+    let mut entry = archive.by_name(path).ok()?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut entry, &mut bytes).ok()?;
+    Some(bytes)
+}
+
+fn row_height_pt(sheet: &umya_spreadsheet::Worksheet, row: u32) -> f64 {
+    sheet
+        .get_row_dimension(&row)
+        .filter(|r| *r.get_custom_height())
+        .map(|r| *r.get_height())
+        .unwrap_or(DEFAULT_ROW_HEIGHT_PT)
+}
+
+fn column_width_pt(sheet: &umya_spreadsheet::Worksheet, col: u32) -> f64 {
+    sheet
+        .get_column_dimension_by_number(&col)
+        .map(|c| column_width_to_pt(*c.get_width()))
+        .unwrap_or_else(|| column_width_to_pt(DEFAULT_COLUMN_WIDTH))
+}
+
+fn x_from_marker(
+    sheet: &umya_spreadsheet::Worksheet,
+    ctx: &SheetContext,
+    margins: &Margins,
+    marker: &Marker,
+) -> f64 {
+    // Drawing anchors are zero-based; SheetContext coordinates are one-based.
+    let col = marker.col + 1;
+    let mut x = margins.left;
+    for c in ctx.col_start..col {
+        x += column_width_pt(sheet, c);
+    }
+    x + emu_to_pt(marker.col_off_emu)
+}
+
+fn y_from_marker(
+    sheet: &umya_spreadsheet::Worksheet,
+    ctx: &SheetContext,
+    margins: &Margins,
+    marker: &Marker,
+) -> f64 {
+    let row = marker.row + 1;
+    let mut y = margins.top;
+    for r in ctx.row_start..row {
+        y += row_height_pt(sheet, r);
+    }
+    y + emu_to_pt(marker.row_off_emu)
+}
+
+fn anchor_size_pt(
+    sheet: &umya_spreadsheet::Worksheet,
+    ctx: &SheetContext,
+    anchor: &PictureAnchor,
+) -> (f64, f64) {
+    if let Some((cx, cy)) = anchor.ext {
+        return (emu_to_pt(cx), emu_to_pt(cy));
+    }
+
+    let Some(to) = anchor.to.as_ref() else {
+        return (0.0, 0.0);
+    };
+
+    let from_col = anchor.from.col + 1;
+    let to_col = to.col + 1;
+    let from_row = anchor.from.row + 1;
+    let to_row = to.row + 1;
+
+    let mut width = -emu_to_pt(anchor.from.col_off_emu) + emu_to_pt(to.col_off_emu);
+    for c in from_col..to_col {
+        width += column_width_pt(sheet, c);
+    }
+
+    let mut height = -emu_to_pt(anchor.from.row_off_emu) + emu_to_pt(to.row_off_emu);
+    for r in from_row..to_row {
+        height += row_height_pt(sheet, r);
+    }
+
+    // Keep obviously malformed anchors out of Typst.
+    (width.max(0.0), height.max(0.0))
+}
+
+/// Extract worksheet pictures as fixed overlays.
+///
+/// This intentionally handles raster/vector pictures (`xdr:pic`) separately from
+/// charts. Existing chart extraction renders charts as data tables; pictures
+/// must stay as images because templates often use them for logos/stamps/TTD.
+pub(super) fn extract_sheet_picture_overlays(
+    data: &[u8],
+    sheet_name: &str,
+    sheet: &umya_spreadsheet::Worksheet,
+    ctx: &SheetContext,
+    margins: &Margins,
+) -> Vec<FixedElement> {
+    let Ok(mut archive) = crate::parser::open_zip(data) else {
+        return Vec::new();
+    };
+
+    let workbook_xml = read_zip_entry_string(&mut archive, "xl/workbook.xml");
+    let sheet_rids = parse_workbook_sheet_rids(&workbook_xml);
+    let Some((_, sheet_rid)) = sheet_rids.iter().find(|(name, _)| name == sheet_name) else {
+        return Vec::new();
+    };
+
+    let workbook_rels_xml = read_zip_entry_string(&mut archive, "xl/_rels/workbook.xml.rels");
+    let rid_to_target = parse_rels_targets(&workbook_rels_xml);
+    let Some(sheet_target) = rid_to_target.get(sheet_rid) else {
+        return Vec::new();
+    };
+
+    let sheet_full_path = format!("xl/{sheet_target}");
+    let sheet_filename = sheet_full_path.rsplit('/').next().unwrap_or(sheet_target);
+    let sheet_rels_path = format!("xl/worksheets/_rels/{sheet_filename}.rels");
+    let sheet_rels_xml = read_zip_entry_string(&mut archive, &sheet_rels_path);
+    if sheet_rels_xml.is_empty() {
+        return Vec::new();
+    }
+
+    let mut overlays = Vec::new();
+    for drawing_target in parse_rels_by_type(&sheet_rels_xml, "drawing") {
+        let drawing_path = resolve_relative_xl_path("xl/worksheets", &drawing_target);
+        let drawing_xml = read_zip_entry_string(&mut archive, &drawing_path);
+        if drawing_xml.is_empty() {
+            continue;
+        }
+
+        let drawing_filename = drawing_path.rsplit('/').next().unwrap_or(&drawing_path);
+        let drawing_dir = drawing_path
+            .rsplit_once('/')
+            .map(|(d, _)| d)
+            .unwrap_or("xl/drawings");
+        let drawing_rels_path = format!("{drawing_dir}/_rels/{drawing_filename}.rels");
+        let drawing_rels_xml = read_zip_entry_string(&mut archive, &drawing_rels_path);
+        let drawing_rid_targets = parse_rels_targets(&drawing_rels_xml);
+
+        for anchor in parse_drawing_picture_anchors(&drawing_xml) {
+            let Some(target) = drawing_rid_targets.get(&anchor.rid) else {
+                continue;
+            };
+            let image_path = resolve_relative_xl_path(drawing_dir, target);
+            let Some(format) = image_format_from_path(&image_path) else {
+                continue;
+            };
+            let Some(bytes) = read_zip_entry_bytes(&mut archive, &image_path) else {
+                continue;
+            };
+
+            let x = x_from_marker(sheet, ctx, margins, &anchor.from);
+            let y = y_from_marker(sheet, ctx, margins, &anchor.from);
+            let (width, height) = anchor_size_pt(sheet, ctx, &anchor);
+            if width <= 0.0 || height <= 0.0 {
+                continue;
+            }
+
+            overlays.push(FixedElement {
+                x,
+                y,
+                width,
+                height,
+                kind: FixedElementKind::Image(ImageData {
+                    data: bytes,
+                    format,
+                    width: Some(width),
+                    height: Some(height),
+                    crop: None,
+                    stroke: None,
+                }),
+            });
+        }
+    }
+
+    overlays
+}
+
+fn parse_drawing_picture_anchors(xml: &str) -> Vec<PictureAnchor> {
+    let mut result = Vec::new();
+    let mut reader = quick_xml::Reader::from_str(xml);
+
+    let mut current_anchor: Option<PictureAnchor> = None;
+    let mut marker_target: Option<&'static str> = None;
+    let mut current_marker: Option<Marker> = None;
+    let mut current_field: Option<&'static str> = None;
+    let mut in_pic = false;
+
+    loop {
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::Start(ref e)) => match e.local_name().as_ref() {
+                b"twoCellAnchor" | b"oneCellAnchor" => {
+                    current_anchor = Some(PictureAnchor {
+                        from: Marker::default(),
+                        to: None,
+                        ext: None,
+                        rid: String::new(),
+                    });
+                }
+                b"from" if current_anchor.is_some() => {
+                    marker_target = Some("from");
+                    current_marker = Some(Marker::default());
+                }
+                b"to" if current_anchor.is_some() => {
+                    marker_target = Some("to");
+                    current_marker = Some(Marker::default());
+                }
+                b"col" => current_field = Some("col"),
+                b"colOff" => current_field = Some("colOff"),
+                b"row" => current_field = Some("row"),
+                b"rowOff" => current_field = Some("rowOff"),
+                b"ext" => {
+                    if let Some(anchor) = current_anchor.as_mut() {
+                        let cx = xml_util::get_attr_i64(e, b"cx").unwrap_or(0);
+                        let cy = xml_util::get_attr_i64(e, b"cy").unwrap_or(0);
+                        if cx > 0 && cy > 0 {
+                            anchor.ext = Some((cx, cy));
+                        }
+                    }
+                }
+                b"pic" => in_pic = true,
+                b"blip" if in_pic => {
+                    if let Some(anchor) = current_anchor.as_mut()
+                        && let Some(rid) = xml_util::get_attr_str(e, b"embed")
+                    {
+                        anchor.rid = rid;
+                    }
+                }
+                _ => {}
+            },
+            Ok(quick_xml::events::Event::Empty(ref e)) => match e.local_name().as_ref() {
+                b"ext" => {
+                    if let Some(anchor) = current_anchor.as_mut() {
+                        let cx = xml_util::get_attr_i64(e, b"cx").unwrap_or(0);
+                        let cy = xml_util::get_attr_i64(e, b"cy").unwrap_or(0);
+                        if cx > 0 && cy > 0 {
+                            anchor.ext = Some((cx, cy));
+                        }
+                    }
+                }
+                b"blip" if in_pic => {
+                    if let Some(anchor) = current_anchor.as_mut()
+                        && let Some(rid) = xml_util::get_attr_str(e, b"embed")
+                    {
+                        anchor.rid = rid;
+                    }
+                }
+                _ => {}
+            },
+            Ok(quick_xml::events::Event::Text(ref t)) => {
+                if let (Some(marker), Some(field)) = (current_marker.as_mut(), current_field)
+                    && let Ok(text) = t.xml_content()
+                    && let Ok(value) = text.trim().parse::<i64>()
+                {
+                    match field {
+                        "col" => marker.col = value.max(0) as u32,
+                        "colOff" => marker.col_off_emu = value,
+                        "row" => marker.row = value.max(0) as u32,
+                        "rowOff" => marker.row_off_emu = value,
+                        _ => {}
+                    }
+                }
+            }
+            Ok(quick_xml::events::Event::End(ref e)) => match e.local_name().as_ref() {
+                b"from" | b"to" => {
+                    if let (Some(anchor), Some(target), Some(marker)) = (
+                        current_anchor.as_mut(),
+                        marker_target.take(),
+                        current_marker.take(),
+                    ) {
+                        if target == "from" {
+                            anchor.from = marker;
+                        } else {
+                            anchor.to = Some(marker);
+                        }
+                    }
+                    current_field = None;
+                }
+                b"col" | b"colOff" | b"row" | b"rowOff" => {
+                    current_field = None;
+                }
+                b"pic" => in_pic = false,
+                b"twoCellAnchor" | b"oneCellAnchor" => {
+                    if let Some(anchor) = current_anchor.take()
+                        && !anchor.rid.is_empty()
+                    {
+                        result.push(anchor);
+                    }
+                }
+                _ => {}
+            },
+            Ok(quick_xml::events::Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+
+    result
+}
 
 /// Extract charts from the XLSX ZIP with their anchor positions per sheet.
 ///

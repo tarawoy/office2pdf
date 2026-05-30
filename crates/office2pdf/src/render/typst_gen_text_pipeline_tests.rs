@@ -283,6 +283,7 @@ fn test_generate_table_page_empty_rows() {
         header: None,
         footer: None,
         charts: vec![],
+        overlays: vec![],
     })]);
     let output = generate_typst(&doc).unwrap();
     assert!(!output.source.is_empty());

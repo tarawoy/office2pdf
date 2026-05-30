@@ -62,6 +62,13 @@ impl XlsxParser {
             };
 
             let sheet_name = sheet.get_name().to_string();
+            let overlays = extract_sheet_picture_overlays(
+                data,
+                &sheet_name,
+                sheet,
+                &ctx,
+                &Margins::default(),
+            );
 
             // Extract sheet header/footer
             let hf = sheet.get_header_footer();
@@ -87,6 +94,7 @@ impl XlsxParser {
                 let chunk_end = (chunk_start + chunk_size as u32 - 1).min(row_end);
 
                 let rows = build_rows_for_range(sheet, &ctx, chunk_start, chunk_end);
+                let attach_sheet_drawings = first_chunk;
 
                 let doc = Document {
                     metadata: metadata.clone(),
@@ -104,11 +112,16 @@ impl XlsxParser {
                         },
                         header: sheet_header.clone(),
                         footer: sheet_footer.clone(),
-                        charts: if first_chunk {
+                        charts: if attach_sheet_drawings {
                             first_chunk = false;
                             std::mem::take(&mut sheet_charts)
                         } else {
                             vec![]
+                        },
+                        overlays: if attach_sheet_drawings {
+                            overlays.clone()
+                        } else {
+                            Vec::new()
                         },
                     })],
                     styles: StyleSheet::default(),
@@ -161,6 +174,13 @@ impl Parser for XlsxParser {
             // Collect row page breaks and split rows into page segments
             let row_breaks = collect_row_breaks(sheet);
             let sheet_name = sheet.get_name().to_string();
+            let overlays = extract_sheet_picture_overlays(
+                data,
+                &sheet_name,
+                sheet,
+                &ctx,
+                &Margins::default(),
+            );
 
             // Extract sheet header/footer
             let hf = sheet.get_header_footer();
@@ -197,6 +217,7 @@ impl Parser for XlsxParser {
                     header: sheet_header.clone(),
                     footer: sheet_footer.clone(),
                     charts: sheet_charts,
+                    overlays,
                 }));
             } else {
                 // Split rows at break points
@@ -223,6 +244,7 @@ impl Parser for XlsxParser {
                 // For page-break segments, attach all charts to the first segment
                 let mut first_segment = true;
                 for segment in segments {
+                    let attach_sheet_drawings = first_segment;
                     pages.push(Page::Sheet(SheetPage {
                         name: sheet_name.clone(),
                         size: PageSize::default(),
@@ -237,11 +259,16 @@ impl Parser for XlsxParser {
                         },
                         header: sheet_header.clone(),
                         footer: sheet_footer.clone(),
-                        charts: if first_segment {
+                        charts: if attach_sheet_drawings {
                             first_segment = false;
                             std::mem::take(&mut sheet_charts)
                         } else {
                             vec![]
+                        },
+                        overlays: if attach_sheet_drawings {
+                            overlays.clone()
+                        } else {
+                            Vec::new()
                         },
                     }));
                 }
