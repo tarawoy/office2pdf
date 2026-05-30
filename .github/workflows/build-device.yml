@@ -32,8 +32,29 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/zig-cc"
           cat > "$RUNNER_TEMP/zig-cc/aarch64-linux-musl-gcc" <<'SH'
-          #!/bin/sh
-          exec zig cc -target aarch64-linux-musl "$@"
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          args=()
+          skip_next=0
+          for arg in "$@"; do
+            if [ "$skip_next" -eq 1 ]; then
+              skip_next=0
+              continue
+            fi
+            case "$arg" in
+              --target=aarch64-unknown-linux-musl|-target=aarch64-unknown-linux-musl)
+                ;;
+              --target|-target)
+                skip_next=1
+                ;;
+              *)
+                args+=("$arg")
+                ;;
+            esac
+          done
+
+          exec zig cc -target aarch64-linux-musl "${args[@]}"
           SH
           chmod +x "$RUNNER_TEMP/zig-cc/aarch64-linux-musl-gcc"
           echo "$RUNNER_TEMP/zig-cc" >> "$GITHUB_PATH"
