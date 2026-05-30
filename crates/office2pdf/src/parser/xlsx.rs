@@ -62,13 +62,8 @@ impl XlsxParser {
             };
 
             let sheet_name = sheet.get_name().to_string();
-            let overlays = extract_sheet_picture_overlays(
-                data,
-                &sheet_name,
-                sheet,
-                &ctx,
-                &Margins::default(),
-            );
+            let overlays =
+                extract_sheet_picture_overlays(data, &sheet_name, sheet, &ctx, &Margins::default());
 
             // Extract sheet header/footer
             let hf = sheet.get_header_footer();
@@ -174,13 +169,8 @@ impl Parser for XlsxParser {
             // Collect row page breaks and split rows into page segments
             let row_breaks = collect_row_breaks(sheet);
             let sheet_name = sheet.get_name().to_string();
-            let overlays = extract_sheet_picture_overlays(
-                data,
-                &sheet_name,
-                sheet,
-                &ctx,
-                &Margins::default(),
-            );
+            let overlays =
+                extract_sheet_picture_overlays(data, &sheet_name, sheet, &ctx, &Margins::default());
 
             // Extract sheet header/footer
             let hf = sheet.get_header_footer();

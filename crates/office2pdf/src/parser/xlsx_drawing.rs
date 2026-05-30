@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 
-use crate::ir::{FixedElement, FixedElementKind, ImageData, ImageFormat, Margins};
 use crate::ir::Chart;
+use crate::ir::{FixedElement, FixedElementKind, ImageData, ImageFormat, Margins};
 use crate::parser::chart::parse_chart_xml;
 use crate::parser::xml_util;
 
-use super::xlsx_cells::{SheetContext, DEFAULT_COLUMN_WIDTH, column_width_to_pt};
+use super::xlsx_cells::{DEFAULT_COLUMN_WIDTH, SheetContext, column_width_to_pt};
 
 const EMU_PER_POINT: f64 = 12_700.0;
 const DEFAULT_ROW_HEIGHT_PT: f64 = 15.0;
