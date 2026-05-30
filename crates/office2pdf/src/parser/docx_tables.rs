@@ -366,17 +366,15 @@ fn extract_cell_content(
             docx_rs::TableCellContent::Paragraph(para) => {
                 convert_paragraph_blocks(para, &mut blocks, images, hyperlinks, style_map, ctx);
             }
-            docx_rs::TableCellContent::Table(nested_table) => {
-                if depth < MAX_TABLE_DEPTH {
-                    blocks.push(Block::Table(convert_table(
-                        nested_table,
-                        images,
-                        hyperlinks,
-                        style_map,
-                        ctx,
-                        depth + 1,
-                    )));
-                }
+            docx_rs::TableCellContent::Table(nested_table) if depth < MAX_TABLE_DEPTH => {
+                blocks.push(Block::Table(convert_table(
+                    nested_table,
+                    images,
+                    hyperlinks,
+                    style_map,
+                    ctx,
+                    depth + 1,
+                )));
             }
             _ => {}
         }

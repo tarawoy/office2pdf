@@ -395,15 +395,13 @@ fn extract_hf_run_elements(
                     }));
                 }
             }
-            docx_rs::RunChild::Tab(_) => {
-                if !in_field {
-                    elements.push(HFInline::Run(Run {
-                        text: "\t".to_string(),
-                        style: style.clone(),
-                        href: None,
-                        footnote: None,
-                    }));
-                }
+            docx_rs::RunChild::Tab(_) if !in_field => {
+                elements.push(HFInline::Run(Run {
+                    text: "\t".to_string(),
+                    style: style.clone(),
+                    href: None,
+                    footnote: None,
+                }));
             }
             _ => {}
         }

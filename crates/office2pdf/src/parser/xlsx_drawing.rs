@@ -100,7 +100,6 @@ fn y_from_marker(
 
 fn anchor_size_pt(
     sheet: &umya_spreadsheet::Worksheet,
-    ctx: &SheetContext,
     anchor: &PictureAnchor,
 ) -> (f64, f64) {
     if let Some((cx, cy)) = anchor.ext {
@@ -197,7 +196,7 @@ pub(super) fn extract_sheet_picture_overlays(
 
             let x = x_from_marker(sheet, ctx, margins, &anchor.from);
             let y = y_from_marker(sheet, ctx, margins, &anchor.from);
-            let (width, height) = anchor_size_pt(sheet, ctx, &anchor);
+            let (width, height) = anchor_size_pt(sheet, &anchor);
             if width <= 0.0 || height <= 0.0 {
                 continue;
             }

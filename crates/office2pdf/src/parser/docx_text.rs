@@ -255,10 +255,8 @@ pub(super) fn extract_run_text_skip_column_breaks(run: &docx_rs::Run) -> String 
         match child {
             docx_rs::RunChild::Text(t) => text.push_str(&t.text),
             docx_rs::RunChild::Tab(_) => text.push('\t'),
-            docx_rs::RunChild::Break(br) => {
-                if !is_column_break(br) {
-                    text.push('\n');
-                }
+            docx_rs::RunChild::Break(br) if !is_column_break(br) => {
+                text.push('\n');
             }
             _ => {}
         }

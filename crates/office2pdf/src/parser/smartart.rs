@@ -35,11 +35,9 @@ pub(crate) fn parse_smartart_data_xml(xml: &str) -> Vec<SmartArtNode> {
             "doc" => {
                 doc_id = Some(pt.model_id.clone());
             }
-            "node" => {
-                if !pt.text.is_empty() {
-                    node_texts.insert(pt.model_id.clone(), pt.text.clone());
-                    node_order.push(pt.model_id.clone());
-                }
+            "node" if !pt.text.is_empty() => {
+                node_texts.insert(pt.model_id.clone(), pt.text.clone());
+                node_order.push(pt.model_id.clone());
             }
             _ => {}
         }
