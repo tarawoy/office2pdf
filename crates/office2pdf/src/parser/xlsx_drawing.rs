@@ -98,10 +98,7 @@ fn y_from_marker(
     y + emu_to_pt(marker.row_off_emu)
 }
 
-fn anchor_size_pt(
-    sheet: &umya_spreadsheet::Worksheet,
-    anchor: &PictureAnchor,
-) -> (f64, f64) {
+fn anchor_size_pt(sheet: &umya_spreadsheet::Worksheet, anchor: &PictureAnchor) -> (f64, f64) {
     if let Some((cx, cy)) = anchor.ext {
         return (emu_to_pt(cx), emu_to_pt(cy));
     }
