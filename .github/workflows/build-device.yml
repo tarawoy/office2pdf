@@ -27,6 +27,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: goto-bus-stop/setup-zig@v2
+      - name: Configure Zig cross linker
+        run: |
+          mkdir -p "$RUNNER_TEMP/zig-cc"
+          cat > "$RUNNER_TEMP/zig-cc/aarch64-linux-musl-gcc" <<'SH'
+          #!/bin/sh
+          exec zig cc -target aarch64-linux-musl "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/zig-cc/aarch64-linux-musl-gcc"
+          echo "$RUNNER_TEMP/zig-cc" >> "$GITHUB_PATH"
+          echo "CC_aarch64_unknown_linux_musl=$RUNNER_TEMP/zig-cc/aarch64-linux-musl-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=$RUNNER_TEMP/zig-cc/aarch64-linux-musl-gcc" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
           key: device-${{ matrix.target }}
