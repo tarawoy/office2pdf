@@ -1,0 +1,45 @@
+name: Build Device Binary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-device.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: device-${{ matrix.target }}
+      - name: Build CLI
+        run: cargo build --release -p office2pdf-cli --target ${{ matrix.target }}
+      - name: Package artifact
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/office2pdf dist/office2pdf-${{ matrix.target }}
+          chmod +x dist/office2pdf-${{ matrix.target }}
+          (cd dist && sha256sum office2pdf-${{ matrix.target }} > office2pdf-${{ matrix.target }}.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: office2pdf-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
